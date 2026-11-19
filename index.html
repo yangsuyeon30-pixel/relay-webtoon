@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>릴레이 웹툰 이어쓰기 🏃</title>
+<link rel="stylesheet" href="style.css">
+<script src="common.js"></script>
+</head>
+<body>
+<div class="topbar">
+  <span class="logo">🏃 릴레이 웹툰</span>
+  <span class="spacer"></span>
+  <a href="result.html">📖 결과 보기</a>
+  <a href="admin.html">⚙️</a>
+</div>
+<div class="wrap">
+  <div class="hero">
+    <h1>하나의 웹툰, 릴레이로 이어쓰기! 🏃</h1>
+    <p>1팀부터 순서대로 맡은 구간을 이어씁니다.<br>앞 팀이 쓴 이야기를 보고 다음 구간을 이어가 보세요.</p>
+  </div>
+  <div class="steps">
+    <span class="step">1️⃣ 자기 팀 차례·구간 확인</span>
+    <span class="step">2️⃣ 맡은 구간 말풍선 채우기</span>
+    <span class="step">3️⃣ 넘기기 → 다음 팀이 이어쓰기</span>
+  </div>
+  <div id="turnBanner"></div>
+
+  <h2 class="sec">내 팀 번호를 선택하세요</h2>
+  <div class="team-grid" id="teamGrid"><p class="note">불러오는 중…</p></div>
+
+  <div class="linkrow">
+    <a class="btn teal" href="result.html">📖 릴레이 결과 보러 가기</a>
+  </div>
+  <p class="note mt">💡 차례가 아닌 팀은 자기 팀 버튼을 눌러두면 차례가 됐을 때 화면이 자동으로 열려요. 작성 내용은 자동 저장됩니다.</p>
+</div>
+<script>
+(async function () {
+  const grid = document.getElementById('teamGrid');
+  const n = await getTeamCount();
+  const pc = await getPanelCount();
+  let st = { done: [], currentPanel: 0, complete: false, currentTeam: 1, currentChunk: null, doneCount: 0, panelCount: pc };
+  try { st = await getRelayState(n, pc); } catch (e) { /* 배너 없이 팀 버튼만 표시 */ }
+  const banner = document.getElementById('turnBanner');
+  if (st.complete) {
+    banner.innerHTML = '<div class="turn-banner done">🎉 릴레이 완성! ' + pc + '컷 모두 이어졌어요. 결과를 확인해보세요.</div>';
+  } else {
+    banner.innerHTML = '<div class="turn-banner now">🏃 지금 차례: <b>' + st.currentTeam + '팀</b> · ' + chunkLabel(st.currentTeam, n, pc) + ' 작성 중 (' + st.doneCount + '/' + pc + '컷 완성)</div>';
+  }
+  if (n > pc) {
+    banner.innerHTML += '<p class="note center">⚠️ 팀이 컷 수(' + pc + '컷)보다 많으면 차례가 없는 팀이 생겨요. 관리자가 팀 수를 맞추는 게 좋아요.</p>';
+  }
+  grid.innerHTML = '';
+  for (let i = 1; i <= n; i++) {
+    const chunk = teamChunk(i, n, pc);
+    const myDone = chunk ? st.done.slice(chunk.start, chunk.end + 1).filter(Boolean).length : 0;
+    let status, cls = 'team-btn';
+    if (!chunk) { status = '<span class="status">차례 없음</span>'; }
+    else if (st.complete || myDone === chunk.size) { status = '<span class="done">이어쓰기 완료 ✓</span>'; }
+    else if (i === st.currentTeam) { status = '<span class="status now">지금 차례 ✍️</span>'; cls += ' now'; }
+    else { status = '<span class="status">차례 대기</span>'; }
+    const b = document.createElement('button');
+    b.className = cls;
+    b.innerHTML = '<div class="t">' + i + '팀</div>'
+      + '<div class="assign">' + (chunk ? '맡은 구간: ' + chunkLabel(i, n, pc) : '맡은 구간 없음') + '</div>'
+      + (chunk ? '<div class="pcount">' + myDone + '/' + chunk.size + '컷 완료</div>' : '')
+      + status;
+    b.onclick = () => location.href = 'write.html?team=' + i;
+    grid.appendChild(b);
+  }
+})();
+
+// 초기화를 알아채면 새로고침해서 빈 상태로
+let resetEpoch = null;
+setInterval(async () => {
+  const ep = await getResetEpoch();
+  if (ep === null) return;
+  if (resetEpoch === null) { resetEpoch = ep; return; }
+  if (ep !== resetEpoch) location.reload();
+}, 5000);
+</script>
+</body>
+</html>

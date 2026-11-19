@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>관리자 ⚙️</title>
+<link rel="stylesheet" href="style.css">
+<script src="common.js"></script>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html">‹ 홈</a>
+  <span class="logo">⚙️ 관리자</span>
+  <span class="spacer"></span>
+</div>
+<div class="wrap">
+  <div class="card">
+    <h3>🔗 참가자용 링크</h3>
+    <div class="row">
+      <input type="text" id="shareUrl" readonly style="width:100%;flex:1" onclick="this.select()">
+      <button class="btn ghost" id="copyBtn">복사</button>
+    </div>
+    <p class="note">이 링크를 단톡방·메일에 공유하세요. PC가 꺼져 있어도 열립니다.</p>
+  </div>
+
+  <div class="card">
+    <h3>👥 팀 수 설정</h3>
+    <div class="row">
+      <input type="number" id="teamCount" min="1" max="60" value="8">
+      <button class="btn ghost" id="saveCount">저장</button>
+      <span class="note">참가자는 1팀부터 이 숫자까지 선택할 수 있어요. 팀 수에 따라 구간 나누기가 정해지니, 시작 전에 실제 팀 수로 맞추세요. (컷 수보다 팀이 많으면 차례가 없는 팀이 생깁니다)</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🎬 웹툰 컷 수 설정</h3>
+    <div class="row">
+      <input type="number" id="panelCount" min="1" max="15" value="15">
+      <button class="btn ghost" id="savePanels">저장</button>
+      <span class="note">웹툰은 1컷부터 이 숫자까지 사용해요. 그림은 총 15컷까지 있어요. 줄이면 뒤 컷은 숨겨지고, 늘리면 다시 보여요. 진행 중에 바꾸면 구간이 다시 나뉘니 시작 전에 정하세요.</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🏃 릴레이 현황 <button class="btn ghost" id="refreshRelay" style="font-size:13px;padding:6px 12px;">🔄 새로고침</button> <span class="note">● 3초마다 자동 갱신</span></h3>
+    <div id="relayStatus"><p class="note">불러오는 중…</p></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="forcePass">다음 구간으로 강제 넘기기</button>
+      <button class="btn ghost" id="reopenLast">마지막 구간 되돌리기</button>
+      <button class="btn ghost" id="resetRelay">릴레이 전체 초기화</button>
+    </div>
+    <p class="note">강제 넘기기는 빈 구간도 통째로 넘깁니다. 되돌리기는 마지막으로 완료된 구간을 다시 쓸 수 있게 합니다.</p>
+  </div>
+
+  <div class="card">
+    <h3>🎬 완성된 웹툰 전체 보기 <button class="btn ghost" id="refreshPreview" style="font-size:13px;padding:6px 12px;">🔄 새로고침</button></h3>
+    <div id="webtoonPreview"><p class="note">불러오는 중…</p></div>
+    <div class="row" style="margin-top:12px">
+      <a class="btn teal" href="result.html">📖 결과 페이지로 크게 보기</a>
+      <span class="note">지금 쓰는 팀이 입력하는 대사가 몇 초 뒤에 자동으로 보여요. 아직 차례가 오지 않은 컷은 잠금 표시로 보여요.</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>💾 릴레이 대사 다운로드</h3>
+    <div class="row">
+      <button class="btn teal" id="csvBtn">CSV 다운로드 (엑셀용)</button>
+      <span class="note">컷·담당 팀·상태·대사가 담깁니다.</span>
+    </div>
+  </div>
+
+</div>
+<script>
+let currentN = 8, currentP = PANELS.length, relayState = null;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function armButton(btn, label, ms, fn) {
+  let armed = false, t = null;
+  btn.addEventListener('click', async () => {
+    const orig = btn.dataset.orig || btn.textContent;
+    btn.dataset.orig = orig;
+    if (!armed) {
+      armed = true;
+      btn.textContent = label;
+      t = setTimeout(() => { armed = false; btn.textContent = orig; }, ms || 8000);
+      return;
+    }
+    clearTimeout(t);
+    armed = false;
+    await fn(btn);
+    btn.textContent = orig;
+  });
+}
+
+let statusLoading = false;
+async function loadRelayStatus() {
+  if (statusLoading) return;
+  statusLoading = true;
+  const box = document.getElementById('relayStatus');
+  try {
+    relayState = await getRelayState(currentN, currentP);
+    const bubbles = await getRelayBubbles();
+    let html = '<p class="note">' + (relayState.complete
+      ? '🎉 릴레이 완성! ' + currentP + '컷 모두 이어졌어요.'
+      : '지금 차례: <strong>' + relayState.currentTeam + '팀</strong> · ' + chunkLabel(relayState.currentTeam, currentN, currentP) + ' (' + relayState.doneCount + '/' + currentP + '컷 완성)') + '</p>';
+    if (currentN > currentP) html += '<p class="note">⚠️ 팀이 컷 수(' + currentP + '컷)보다 많아 차례가 없는 팀이 있어요. 팀 수를 맞추는 게 좋아요.</p>';
+    html += '<table class="adm"><tr><th>컷</th><th>담당 팀</th><th>상태</th><th>대사 미리보기</th></tr>';
+    for (let p = 0; p < currentP; p++) {
+      const t1 = (bubbles[p + '_0'] || '').trim(), t2 = (bubbles[p + '_1'] || '').trim();
+      const preview = [t1, t2].filter(Boolean).join(' / ') || '—';
+      const inCur = !!(relayState.currentChunk && p >= relayState.currentChunk.start && p <= relayState.currentChunk.end);
+      const status = relayState.done[p] ? '<span class="badge ok">완료 ✓</span>'
+        : (inCur ? '<span class="badge ok">작성 차례</span>' : '<span class="badge no">대기</span>');
+      html += '<tr><td><strong>' + (p + 1) + '컷</strong></td><td>' + relayAuthor(p, currentN, currentP) + '팀</td><td>' + status + '</td><td style="text-align:left">' + esc(preview) + '</td></tr>';
+    }
+    box.innerHTML = html + '</table>';
+    document.getElementById('forcePass').disabled = relayState.complete;
+    document.getElementById('reopenLast').disabled = relayState.doneCount === 0;
+    renderWebtoonPreview(bubbles);
+  } catch (e) {
+    box.innerHTML = '<p class="note">불러오기 실패 😢</p>';
+    document.getElementById('webtoonPreview').innerHTML = '<p class="note">불러오기 실패 😢</p>';
+  }
+  statusLoading = false;
+}
+
+function renderWebtoonPreview(bubbles) {
+  const box = document.getElementById('webtoonPreview');
+  const st = relayState;
+  if (!st) { box.innerHTML = '<p class="note">불러오기 실패 😢</p>'; return; }
+  box.innerHTML = '<p class="note">' + (st.complete
+    ? '🎉 릴레이 완성! ' + currentP + '컷 모두 이어졌어요.'
+    : '🏃 진행 중 — ' + st.doneCount + '/' + currentP + '컷 완성 · 지금은 ' + st.currentTeam + '팀 차례 (' + chunkLabel(st.currentTeam, currentN, currentP) + ')') + '</p>';
+  for (let p = 0; p < currentP; p++) {
+    const author = relayAuthor(p, currentN, currentP);
+    const inCur = !!(st.currentChunk && p >= st.currentChunk.start && p <= st.currentChunk.end);
+    let badge;
+    if (st.done[p]) badge = '✍️ ' + author + '팀';
+    else if (inCur) badge = '✍️ ' + author + '팀 작성 중…';
+    else badge = author + '팀 차례 대기';
+    const locked = !st.done[p] && !inCur;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = panelFigure(p, (b) => bubbleHTML((bubbles[p + '_' + b] || '').trim(), false, p, b, locked ? '🔒 차례가 오면 열려요' : null), badge);
+    box.appendChild(tmp.firstChild);
+  }
+}
+
+async function init() {
+  currentN = await getTeamCount();
+  currentP = await getPanelCount();
+  document.getElementById('teamCount').value = currentN;
+  document.getElementById('panelCount').value = currentP;
+  document.getElementById('panelCount').max = PANELS.length;
+  loadRelayStatus();
+}
+
+document.getElementById('saveCount').addEventListener('click', async function () {
+  const v = Math.max(1, Math.min(60, parseInt(document.getElementById('teamCount').value || '8', 10)));
+  this.disabled = true;
+  try {
+    await api('webtoon_config', {
+      method: 'POST',
+      headers: Object.assign({}, H, { 'Prefer': 'resolution=merge-duplicates,return=representation' }),
+      body: JSON.stringify({ id: CONFIG_ID, team_count: v })
+    });
+    alert(v + '개 팀으로 설정했어요!');
+    init();
+  } catch (e) { alert('저장 실패 😢'); }
+  this.disabled = false;
+});
+
+document.getElementById('savePanels').addEventListener('click', async function () {
+  const v = Math.max(1, Math.min(PANELS.length, parseInt(document.getElementById('panelCount').value || String(PANELS.length), 10)));
+  this.disabled = true;
+  try {
+    await api('webtoon_config', {
+      method: 'POST',
+      headers: Object.assign({}, H, { 'Prefer': 'resolution=merge-duplicates,return=representation' }),
+      body: JSON.stringify({ id: PANEL_CONFIG_ID, team_count: v })
+    });
+    alert(v + '컷으로 설정했어요!');
+    init();
+  } catch (e) { alert('저장 실패 😢'); }
+  this.disabled = false;
+});
+
+document.getElementById('refreshRelay').addEventListener('click', loadRelayStatus);
+document.getElementById('refreshPreview').addEventListener('click', loadRelayStatus);
+
+armButton(document.getElementById('forcePass'), '정말 넘길까요?', 8000, async (btn) => {
+  const st = relayState || await getRelayState(currentN, currentP);
+  if (st.complete || !st.currentChunk) return;
+  btn.disabled = true;
+  try {
+    const jobs = [];
+    for (let p = st.currentChunk.start; p <= st.currentChunk.end; p++) {
+      jobs.push(api('webtoon_teams', {
+        method: 'POST',
+        headers: Object.assign({}, H, { 'Prefer': 'resolution=merge-duplicates,return=representation' }),
+        body: JSON.stringify({ team_no: MARKER_BASE + p, submitted: true })
+      }));
+    }
+    await Promise.all(jobs);
+    await sleep(400);
+    await loadRelayStatus();
+  } catch (e) { alert('넘기기 실패 😢'); btn.disabled = false; }
+});
+
+armButton(document.getElementById('reopenLast'), '정말 되돌릴까요?', 8000, async (btn) => {
+  const st = relayState || await getRelayState(currentN, currentP);
+  let last = -1;
+  for (let p = 0; p < currentP; p++) { if (st.done[p]) last = p; }
+  if (last < 0) return;
+  const ch = teamChunk(relayAuthor(last, currentN, currentP), currentN, currentP);
+  btn.disabled = true;
+  try {
+    const jobs = [];
+    for (let p = ch.start; p <= ch.end; p++) {
+      jobs.push(api('webtoon_teams?team_no=eq.' + (MARKER_BASE + p), { method: 'DELETE' }));
+    }
+    await Promise.all(jobs);
+    await sleep(400);
+    await loadRelayStatus();
+  } catch (e) { alert('되돌리기 실패 😢'); btn.disabled = false; }
+});
+
+armButton(document.getElementById('resetRelay'), '정말 초기화할까요?', 8000, async (btn) => {
+  btn.disabled = true;
+  try {
+    await api('webtoon_bubbles?team_no=eq.' + RELAY_TEAM, { method: 'DELETE' });
+    await Promise.all(Array.from({ length: PANELS.length }, (_, p) =>
+      api('webtoon_teams?team_no=eq.' + (MARKER_BASE + p), { method: 'DELETE' }).catch(() => null)));
+    try { // 초기화 신호: 열어둔 참가자 화면이 로컬 초안을 버리게 함 (실패해도 삭제는 이미 끝남)
+      const cur = await getResetEpoch();
+      await api('webtoon_config', {
+        method: 'POST',
+        headers: Object.assign({}, H, { 'Prefer': 'resolution=merge-duplicates,return=representation' }),
+        body: JSON.stringify({ id: RESET_CONFIG_ID, team_count: (cur || 0) + 1 })
+      });
+    } catch (e) { /* 신호 쓰기 실패는 무시 */ }
+    await sleep(400);
+    await loadRelayStatus();
+  } catch (e) { alert('초기화 실패 😢'); }
+  btn.disabled = false;
+});
+
+document.getElementById('csvBtn').addEventListener('click', async () => {
+  const q = s => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+  try {
+    const rows = await api('webtoon_bubbles?select=panel_idx,bubble_idx,text&team_no=eq.' + RELAY_TEAM + '&order=panel_idx,bubble_idx');
+    const st = await getRelayState(currentN, currentP);
+    const map = {};
+    rows.forEach(r => { map[r.panel_idx + '_' + r.bubble_idx] = r.text || ''; });
+    let csv = '﻿컷,말풍선,담당 팀,상태,대사\n';
+    for (let p = 0; p < currentP; p++) {
+      const inCur = !!(st.currentChunk && p >= st.currentChunk.start && p <= st.currentChunk.end);
+      for (let b = 0; b < BUBBLES_PER_PANEL; b++) {
+        const status = st.done[p] ? '완료' : (inCur ? '작성 중' : '대기');
+        csv += [q(PANELS[p].title), q(BUBBLE_LABEL[b]), q(relayAuthor(p, currentN, currentP) + '팀'), q(status), q(map[p + '_' + b] || '')].join(',') + '\n';
+      }
+    }
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '릴레이웹툰_대사모음.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch (e) { alert('불러오기 실패 😢'); }
+});
+
+document.getElementById('shareUrl').value = location.origin + location.pathname.replace(/admin\.html$/, 'index.html');
+document.getElementById('copyBtn').addEventListener('click', function () {
+  const inp = document.getElementById('shareUrl');
+  inp.select();
+  try { document.execCommand('copy'); } catch (e) {}
+  if (navigator.clipboard) navigator.clipboard.writeText(inp.value).catch(() => {});
+  this.textContent = '복사됨 ✓';
+  setTimeout(() => this.textContent = '복사', 2000);
+});
+
+setInterval(loadRelayStatus, 3000); // 작성 중인 팀 화면을 실시간으로 보기
+init();
+</script>
+</body>
+</html>

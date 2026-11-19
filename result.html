@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>릴레이 결과 📖</title>
+<link rel="stylesheet" href="style.css">
+<script src="common.js"></script>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html">‹ 홈</a>
+  <span class="logo">📖 릴레이 결과</span>
+  <span class="spacer"></span>
+  <a href="#" onclick="window.print();return false;" class="no-print">🖨️ 인쇄</a>
+</div>
+<div class="wrap">
+  <div id="relayBanner"></div>
+  <div id="panels"><p class="note center">불러오는 중…</p></div>
+</div>
+<script>
+let N = 8, PC = PANELS.length;
+const data = {};
+function key(p, b) { return p + '_' + b; }
+
+(async function () {
+  N = await getTeamCount();
+  PC = await getPanelCount();
+  const wrap = document.getElementById('panels');
+  let st;
+  try {
+    st = await getRelayState(N, PC);
+    const m = await getRelayBubbles();
+    Object.assign(data, m);
+  } catch (e) { wrap.innerHTML = '<p class="note center">불러오기에 실패했어요. 다시 시도해주세요.</p>'; return; }
+  document.getElementById('relayBanner').innerHTML = st.complete
+    ? '<div class="turn-banner done">🎉 릴레이 완성! ' + PC + '컷 모두 이어졌어요.</div>'
+    : '<div class="turn-banner wait">🏃 릴레이 진행 중 — ' + st.doneCount + '/' + PC + '컷 완성 · 지금은 ' + st.currentTeam + '팀 차례 (' + chunkLabel(st.currentTeam, N, PC) + ')</div>';
+  wrap.innerHTML = '<h2 class="sec center" style="margin-top:0">🎬 우리 모두의 릴레이 웹툰</h2>';
+  for (let p = 0; p < PC; p++) {
+    const author = relayAuthor(p, N, PC);
+    const inCur = !!(st.currentChunk && p >= st.currentChunk.start && p <= st.currentChunk.end);
+    let badge;
+    if (st.done[p]) badge = '✍️ ' + author + '팀';
+    else if (inCur) badge = '✍️ ' + author + '팀 작성 중…';
+    else badge = author + '팀 차례 대기';
+    const locked = !st.done[p] && !inCur;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = panelFigure(p, (b) => bubbleHTML((data[key(p, b)] || '').trim(), false, p, b, locked ? '🔒 차례가 오면 열려요' : null), badge);
+    wrap.appendChild(tmp.firstChild);
+  }
+})();
+
+// 초기화를 알아채면 새로고침해서 빈 상태로 (읽기 전용 페이지라 다시 그리는 대신 새로고침)
+let resetEpoch = null;
+setInterval(async () => {
+  const ep = await getResetEpoch();
+  if (ep === null) return;
+  if (resetEpoch === null) { resetEpoch = ep; return; }
+  if (ep !== resetEpoch) location.reload();
+}, 5000);
+</script>
+</body>
+</html>
